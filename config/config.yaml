@@ -1,0 +1,37 @@
+# Konfigurasi proyek MLOps-DBD
+# Semua parameter yang bisa berubah antar-eksperimen didefinisikan di sini,
+# bukan di-hardcode dalam kode src/.
+
+project:
+  name: "MLOps-DBD"
+  seed: 42
+
+ingestion:
+  api_url: "https://api.example.com/dbd-cases"   # TODO: ganti dengan endpoint API asli
+  api_key_env: "DBD_API_KEY"                       # nama GitHub Actions secret / env var
+  raw_dir: "data/raw"
+  params: {}
+
+validation:
+  required_columns: ["date", "region", "cases", "target"]  # TODO: sesuaikan skema data asli
+  min_rows: 50
+  max_missing_ratio: 0.05
+  max_duplicate_ratio: 0.10
+
+data:
+  raw_path: "data/raw/latest.csv"
+  interim_path: "data/interim/dataset_clean.csv"
+  processed_path: "data/processed/dataset_features.csv"
+  target_column: "target"
+  test_size: 0.2
+
+model:
+  type: "random_forest"          # contoh: random_forest, logistic_regression, xgboost
+  output_path: "models/model.pkl"
+  params:
+    n_estimators: 200
+    max_depth: 10
+    random_state: 42
+
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1"]
