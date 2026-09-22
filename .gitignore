@@ -47,6 +47,7 @@ Thumbs.db
 # --- MLOps: data & model artifacts (keep folder structure, ignore contents) ---
 data/raw/*
 !data/raw/.gitkeep
+!data/raw/*.dvc
 data/interim/*
 !data/interim/.gitkeep
 data/processed/*

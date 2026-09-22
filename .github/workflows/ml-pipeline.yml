@@ -1,11 +1,8 @@
 name: ML Pipeline (Ingest -> Validate -> Train)
 
-# Trigger:
-# - schedule: cron berjalan otomatis berkala untuk menarik data baru dari API
-# - workflow_dispatch: bisa dipicu manual dari tab Actions kapan pun perlu
 on:
   schedule:
-    - cron: "0 3 * * *"   # tiap hari jam 03:00 UTC -- sesuaikan kebutuhan
+    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 env:
@@ -57,8 +54,6 @@ jobs:
           name: raw-data
           path: data/raw/
 
-      # Job ini akan exit non-zero jika validasi gagal -> job `train`
-      # otomatis di-skip karena bergantung (needs) pada job ini.
       - name: Run validation gate
         run: python -m src.data.validate_dataset
 
@@ -72,7 +67,7 @@ jobs:
 
   train:
     name: Train Model
-    needs: validate   # hanya jalan jika job `validate` sukses (data lolos)
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

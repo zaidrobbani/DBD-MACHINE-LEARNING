@@ -1,9 +1,3 @@
-"""Mengubah data/interim/ menjadi fitur siap-latih di data/processed/.
-
-Jalankan dari root proyek:
-    python -m src.features.build_features
-"""
-
 import argparse
 from pathlib import Path
 
@@ -17,7 +11,6 @@ def load_config(config_path: str = "config/config.yaml") -> dict:
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Tambahkan/transformasikan fitur di sini (encoding, scaling, dsb)."""
     return df
 
 

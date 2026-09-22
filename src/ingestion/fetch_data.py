@@ -1,16 +1,3 @@
-"""Menarik data terbaru dari API eksternal dan menyimpannya ke data/raw/.
-
-Setiap eksekusi membuat snapshot baru bertimestamp (untuk jejak audit / data
-versioning sederhana) sekaligus memperbarui `data/raw/latest.csv` yang
-menjadi acuan tahap berikutnya (validasi -> training).
-
-Jalankan dari root proyek:
-    python -m src.ingestion.fetch_data
-
-Kredensial API TIDAK disimpan di config.yaml -- ambil dari environment
-variable (diset sebagai GitHub Actions secret saat berjalan di CI).
-"""
-
 import argparse
 import os
 from datetime import datetime, timezone

@@ -1,9 +1,3 @@
-"""Memuat model terlatih dari models/ dan menghasilkan prediksi pada data baru.
-
-Jalankan dari root proyek:
-    python -m src.models.predict_model --input data/processed/new_data.csv
-"""
-
 import argparse
 
 import joblib

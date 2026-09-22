@@ -1,16 +1,3 @@
-"""Gate validasi data: dijalankan setelah ingestion, SEBELUM training.
-
-Bertindak sebagai kondisi (trigger gate) -- training hanya boleh berjalan
-kalau data hasil ingestion lolos pemeriksaan di sini.
-
-Exit code 0  -> validasi lolos, pipeline boleh lanjut ke training.
-Exit code 1  -> validasi gagal, pipeline berhenti (job training di-skip
-                otomatis oleh GitHub Actions lewat `needs`).
-
-Jalankan dari root proyek:
-    python -m src.data.validate_dataset
-"""
-
 import argparse
 import json
 from datetime import datetime, timezone
@@ -26,7 +13,6 @@ def load_config(config_path: str = "config/config.yaml") -> dict:
 
 
 def run_checks(df: pd.DataFrame, rules: dict) -> list[str]:
-    # Kembalikan list pesan error. List kosong berarti semua check lolos
     errors: list[str] = []
 
     missing_cols = set(rules["required_columns"]) - set(df.columns)

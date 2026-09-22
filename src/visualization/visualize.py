@@ -1,9 +1,3 @@
-"""Fungsi bantu untuk membuat visualisasi eksplorasi/evaluasi model.
-
-Dipanggil dari notebook atau skrip lain, misal:
-    from src.visualization.visualize import plot_confusion_matrix
-"""
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix

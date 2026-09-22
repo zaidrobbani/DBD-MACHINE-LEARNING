@@ -1,10 +1,3 @@
-"""Mengambil data mentah dari data/raw/ dan membersihkannya menjadi
-data/interim/, siap dipakai untuk feature engineering.
-
-Jalankan dari root proyek:
-    python -m src.data.make_dataset
-"""
-
 import argparse
 from pathlib import Path
 
@@ -18,7 +11,6 @@ def load_config(config_path: str = "config/config.yaml") -> dict:
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Langkah pembersihan dasar. Sesuaikan dengan karakteristik dataset DBD."""
     df = df.drop_duplicates()
     df = df.dropna(how="all")
     return df

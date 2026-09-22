@@ -20,3 +20,6 @@ requests==2.32.3
 # --- Code quality ---
 ruff==0.5.5
 pytest==8.2.2
+
+# --- Data versioning ---
+dvc==3.67.1

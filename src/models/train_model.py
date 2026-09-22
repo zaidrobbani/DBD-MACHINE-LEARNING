@@ -1,9 +1,3 @@
-"""Melatih model dari data/processed/ dan menyimpan artefaknya ke models/.
-
-Jalankan dari root proyek:
-    python -m src.models.train_model
-"""
-
 import argparse
 from pathlib import Path
 
