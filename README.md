@@ -29,8 +29,10 @@ MLOps-DBD/
 │   └── 0.1-initial-eda.ipynb  # Notebook EDA awal
 ├── src/                       # Source code modular (dapat diimpor sebagai package)
 │   ├── ingestion/
+│   │   ├── ingestion_data.py  # Pengumpul data: Wikipedia Pageviews + Open-Meteo -> data/raw/
 │   │   └── fetch_data.py      # Tarik data terbaru dari API eksternal -> data/raw/
 │   ├── data/
+│   │   ├── preprocess.py      # Gabung snapshot raw -> dedup, interpolasi, validasi -> interim
 │   │   ├── make_dataset.py    # Ambil raw data -> bersihkan -> interim
 │   │   └── validate_dataset.py # Gate validasi: data harus lolos sebelum training
 │   ├── features/
@@ -47,6 +49,83 @@ MLOps-DBD/
 ```
 
 Struktur ini mengikuti konvensi **Cookiecutter Data Science**: data mentah tidak pernah ditimpa secara destruktif (`data/raw` menyimpan snapshot bertimestamp), setiap tahap pemrosesan data punya folder sendiri (`interim` → `processed`), dan logika yang dapat dipakai ulang dipisahkan ke `src/` alih-alih ditulis berulang di notebook.
+
+## Pengumpulan Data (Data Collection)
+
+Data mentah dikumpulkan oleh `src/ingestion/ingestion_data.py` dari dua API publik yang **tidak membutuhkan API key**:
+
+| Sumber | Data yang diambil | Kolom hasil |
+|---|---|---|
+| [Wikipedia Pageviews API](https://wikimedia.org/api/rest_v1/) | Jumlah kunjungan harian artikel [Demam berdarah dengue](https://id.wikipedia.org/wiki/Demam_berdarah_dengue) di Wikipedia Bahasa Indonesia, sebagai proksi minat/kepedulian masyarakat terhadap DBD | `page_views` |
+| [Open-Meteo API](https://open-meteo.com/) | Cuaca harian di Malang, Jawa Timur: curah hujan, suhu rata-rata, kelembapan rata-rata | `precipitation_sum`, `temperature_mean`, `relative_humidity_mean` |
+
+Kedua sumber digabung berdasarkan kolom `date`, lalu ditambah kolom `fetched_at` (waktu pengambilan data).
+
+### Menjalankan skrip pengumpul data
+
+Jalankan dari **root repositori** (path config bersifat relatif) dengan environment yang sudah aktif:
+
+```bash
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# 1. Ambil data mentah -> data/raw/
+python src/ingestion/ingestion_data.py
+
+# 2. (Opsional) Bersihkan & validasi data mentah -> data/interim/
+python src/data/preprocess.py
+```
+
+Opsi yang tersedia:
+
+```bash
+# Ambil rentang yang lebih panjang (default: 14 hari, dari ingestion.days_back)
+python src/ingestion/ingestion_data.py --days-back 60
+
+# Pakai file config lain
+python src/ingestion/ingestion_data.py --config path/ke/config.yaml
+python src/data/preprocess.py --config path/ke/config.yaml
+```
+
+Contoh output:
+
+```
+Mengambil data untuk rentang 2026-09-13 sampai 2026-09-26
+Wikipedia Pageviews API: 14 baris berhasil diambil
+Open-Meteo API: 14 baris berhasil diambil
+Snapshot baru disimpan di data/raw/raw_20260928_141123.csv
+Pointer terbaru diperbarui di data/raw/latest.csv
+```
+
+### Hasil yang dihasilkan
+
+| Skrip | File output | Keterangan |
+|---|---|---|
+| `ingestion_data.py` | `data/raw/raw_YYYYMMDD_HHMMSS.csv` | Snapshot bertimestamp, dibuat baru setiap kali dijalankan (tidak menimpa snapshot lama) |
+| | `data/raw/latest.csv` | Salinan snapshot terakhir |
+| `preprocess.py` | `data/interim/clean_YYYYMMDD_HHMMSS.csv` | Data bersih: gabungan semua snapshot, deduplikasi per tanggal (ambil `fetched_at` terbaru), interpolasi linear kolom cuaca, baris tanpa `page_views` dibuang |
+| | `data/interim/latest.csv` | Salinan data bersih terakhir |
+
+`preprocess.py` akan exit dengan kode error jika data tidak lolos validasi: kolom wajib hilang, jumlah baris di bawah `preprocessing.min_rows`, masih ada tanggal duplikat, atau rasio missing value melebihi `preprocessing.missing_value_threshold`.
+
+### Konfigurasi
+
+Semua parameter ada di `config/config.yaml`:
+
+- `location` — koordinat lokasi data cuaca (default: Malang).
+- `wikipedia` — artikel, bahasa, dan `user_agent` untuk request ke Wikimedia (wajib diisi kontak yang valid sesuai kebijakan Wikimedia).
+- `open_meteo.daily_variables` — variabel cuaca harian yang diambil.
+- `ingestion.days_back` — jumlah hari yang diambil; `ingestion.end_date_offset_days` — jeda hari dari hari ini (default 2 hari, karena data pageviews baru tersedia setelah ~1 hari).
+- `preprocessing` — folder input/output dan ambang batas validasi.
+
+### Versioning data dengan DVC
+
+`data/raw/*` di-ignore oleh git, sedangkan `data/raw/latest.csv` di-track oleh DVC. Setelah menjalankan ingestion, perbarui pointer DVC-nya:
+
+```bash
+dvc add data/raw/latest.csv
+git add data/raw/latest.csv.dvc
+dvc push   # jika remote DVC sudah dikonfigurasi
+```
 
 ## Data Ingestion & Trigger Otomatis (Pengembangan Lanjutan)
 
