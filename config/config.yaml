@@ -1,12 +1,42 @@
 project:
   name: "MLOps-DBD"
   seed: 42
+  timezone: Asia/Jakarta
+
+location:
+  name: Malang, Jawa Timur
+  latitude: -7.9666
+  longitude: 112.6326
+
+wikipedia:
+  project: id.wikipedia.org
+  article: Demam_berdarah_dengue
+  access: all-access
+  agent: all-agents
+  granularity: daily
+  user_agent: "dbd-mlops-pipeline/1.0 (contact: zaidrabbani65@student.ub.ac.id)"
+
+open_meteo:
+  base_url: https://api.open-meteo.com/v1/forecast
+  daily_variables:
+    - temperature_2m_mean
+    - precipitation_sum
+    - relative_humidity_2m_mean
 
 ingestion:
   api_url: "https://api.example.com/dbd-cases"
   api_key_env: "DBD_API_KEY"
   raw_dir: "data/raw"
   params: {}
+  output_dir: "data/raw"
+  days_back: 14
+  end_date_offset_days: 2
+
+preprocessing:
+  input_dir: "data/raw"
+  output_dir: "data/interim"
+  min_rows: 10
+  missing_value_threshold: 0.05
 
 validation:
   required_columns: ["date", "region", "cases", "target"]
