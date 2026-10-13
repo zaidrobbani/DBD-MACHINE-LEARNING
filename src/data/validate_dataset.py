@@ -1,77 +1,101 @@
-import argparse
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-import yaml
+
+from src.schema import DATE, REQUIRED_COLUMNS
+from src.utils import config_arg_parser, load_config
 
 
-def load_config(config_path: str = "config/config.yaml") -> dict:
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
-
-
-def run_checks(df: pd.DataFrame, rules: dict) -> list[str]:
+def run_checks(df: pd.DataFrame, rules: dict, today: date | None = None) -> list[str]:
+    """Aturan validasi tunggal, dipakai untuk data mentah maupun data bersih."""
     errors: list[str] = []
+    today = today or date.today()
 
-    missing_cols = set(rules["required_columns"]) - set(df.columns)
+    missing_cols = set(REQUIRED_COLUMNS) - set(df.columns)
     if missing_cols:
-        errors.append(f"Kolom wajib hilang: {sorted(missing_cols)}")
+        # Pengecekan lain bergantung pada kolom wajib, jadi berhenti di sini.
+        return [f"Kolom wajib hilang: {sorted(missing_cols)}"]
 
     if len(df) < rules["min_rows"]:
         errors.append(f"Jumlah baris ({len(df)}) di bawah minimum ({rules['min_rows']})")
+    if len(df) == 0:
+        return errors
 
-    missing_ratio = df.isna().mean().max() if len(df) else 1.0
-    if missing_ratio > rules["max_missing_ratio"]:
+    dates = pd.to_datetime(df[DATE], errors="coerce")
+    if dates.isna().any():
+        errors.append(f"Ada {int(dates.isna().sum())} nilai tanggal yang tidak valid")
+
+    n_duplicate_dates = int(dates.duplicated().sum())
+    if n_duplicate_dates > rules["max_duplicate_dates"]:
+        errors.append(f"Ada {n_duplicate_dates} tanggal duplikat")
+
+    missing_ratio = df[REQUIRED_COLUMNS].isna().mean()
+    worst_col = missing_ratio.idxmax()
+    if missing_ratio[worst_col] > rules["max_missing_ratio"]:
         errors.append(
-            f"Rasio missing value tertinggi ({missing_ratio:.2%}) melebihi "
-            f"batas ({rules['max_missing_ratio']:.2%})"
+            f"Rasio missing value kolom '{worst_col}' ({missing_ratio[worst_col]:.2%}) "
+            f"melebihi batas ({rules['max_missing_ratio']:.2%})"
         )
 
-    duplicate_ratio = df.duplicated().mean() if len(df) else 0.0
-    if duplicate_ratio > rules.get("max_duplicate_ratio", 1.0):
-        errors.append(f"Rasio baris duplikat ({duplicate_ratio:.2%}) melebihi batas")
+    for col, (low, high) in rules["ranges"].items():
+        values = pd.to_numeric(df[col], errors="coerce").dropna()
+        out_of_range = pd.Series(False, index=values.index)
+        if low is not None:
+            out_of_range |= values < low
+        if high is not None:
+            out_of_range |= values > high
+        if out_of_range.any():
+            errors.append(
+                f"Kolom '{col}' punya {int(out_of_range.sum())} nilai di luar rentang [{low}, {high}]"
+            )
+
+    if dates.notna().any():
+        staleness = (pd.Timestamp(today) - dates.max()).days
+        if staleness > rules["max_staleness_days"]:
+            errors.append(
+                f"Data basi: tanggal terakhir {dates.max().date()} ({staleness} hari lalu), "
+                f"batas {rules['max_staleness_days']} hari"
+            )
 
     return errors
 
 
-def main(config_path: str = "config/config.yaml") -> int:
+def main(config_path: str) -> int:
     config = load_config(config_path)
-    ing_cfg = config["ingestion"]
-    val_cfg = config["validation"]
+    paths = config["paths"]
 
-    latest_path = Path(ing_cfg["raw_dir"]) / "latest.csv"
-    df = pd.read_csv(latest_path)
+    source_path = Path(paths["raw_dataset"])
+    df = pd.read_csv(source_path)
 
-    errors = run_checks(df, val_cfg)
+    errors = run_checks(df, config["validation"])
     passed = len(errors) == 0
 
+    has_dates = DATE in df and len(df) > 0
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source_file": str(latest_path),
+        "source_file": str(source_path),
         "n_rows": len(df),
+        "date_min": str(df[DATE].min()) if has_dates else None,
+        "date_max": str(df[DATE].max()) if has_dates else None,
         "passed": passed,
         "errors": errors,
     }
 
-    report_dir = Path("data/validation")
+    report_dir = Path(paths["validation_dir"])
     report_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    report_path = report_dir / f"{ts}_report.json"
+    report_path = report_dir / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_report.json"
     report_path.write_text(json.dumps(report, indent=2))
 
     status = "LOLOS" if passed else "GAGAL"
-    print(f"[validate_dataset] Validasi {status}. Laporan: {report_path}")
-    if not passed:
-        for err in errors:
-            print(f"  - {err}")
+    print(f"[validate_dataset] Validasi {status} ({len(df)} baris). Laporan: {report_path}")
+    for err in errors:
+        print(f"  - {err}")
 
     return 0 if passed else 1
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Validasi data hasil ingestion.")
-    parser.add_argument("--config", default="config/config.yaml")
-    args = parser.parse_args()
+    args = config_arg_parser("Validasi data hasil ingestion.").parse_args()
     raise SystemExit(main(args.config))

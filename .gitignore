@@ -45,9 +45,9 @@ htmlcov/
 Thumbs.db
 
 # --- MLOps: data & model artifacts (keep folder structure, ignore contents) ---
-data/raw/*
-!data/raw/.gitkeep
-!data/raw/*.dvc
+# data/raw/ TIDAK di-ignore di sini: isinya dilacak DVC, dan `dvc add` menulis
+# data/raw/.gitignore sendiri. Kalau di-ignore di sini, DVC ikut melewatkan
+# file .dvc di folder itu (dvc status: "no data tracked").
 data/interim/*
 !data/interim/.gitkeep
 data/processed/*

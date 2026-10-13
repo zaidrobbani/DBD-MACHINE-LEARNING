@@ -1,0 +1,14 @@
+name: Setup Python environment
+description: Install Python dan dependency proyek (dipakai ulang oleh semua job).
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: pip
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install -r requirements.txt

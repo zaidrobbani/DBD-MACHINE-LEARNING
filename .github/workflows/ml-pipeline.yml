@@ -1,37 +1,48 @@
-name: ML Pipeline (Ingest -> Validate -> Train)
+name: ML Pipeline (CI -> Ingest -> Validate -> Train)
 
 on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch: {}
 
-env:
-  PYTHON_VERSION: "3.11"
-
 jobs:
-  ingest:
-    name: Data Ingestion
+  # CI: kualitas kode + unit test (tanpa akses jaringan).
+  test:
+    name: Lint & Unit Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Lint (ruff)
+        run: ruff check src tests
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Unit test (pytest)
+        run: python -m pytest -q
 
-      - name: Fetch data from API
-        env:
-          DBD_API_KEY: ${{ secrets.DBD_API_KEY }}
-        run: python -m src.ingestion.fetch_data
+  # CT: tarik data terbaru -> validasi (gate) -> latih ulang model.
+  ingest:
+    name: Data Ingestion
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+
+      # Runner GitHub selalu mulai kosong (data/raw tidak di-commit dan remote
+      # DVC masih lokal), jadi histori training diambil ulang lewat --backfill.
+      - name: Fetch Wikipedia Pageviews + Open-Meteo
+        run: python -m src.ingestion.ingestion_data --backfill
 
       - name: Upload raw data snapshot
         uses: actions/upload-artifact@v4
         with:
           name: raw-data
-          path: data/raw/
+          path: data/raw/*.csv
           retention-days: 14
 
   validate:
@@ -40,13 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - uses: ./.github/actions/setup-env
 
       - name: Download raw data snapshot
         uses: actions/download-artifact@v4
@@ -62,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: validation-report
-          path: data/validation/
+          path: data/validation/*.json
           retention-days: 14
 
   train:
@@ -71,13 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - uses: ./.github/actions/setup-env
 
       - name: Download raw data snapshot
         uses: actions/download-artifact@v4
@@ -85,15 +84,30 @@ jobs:
           name: raw-data
           path: data/raw/
 
+      - name: Preprocess
+        run: python -m src.data.preprocess
+
       - name: Build features
         run: python -m src.features.build_features
 
-      - name: Train model
+      - name: Train model (validasi temporal)
         run: python -m src.models.train_model
+
+      - name: Forecast 7 hari ke depan
+        run: python -m src.models.predict_model
+
+      - name: Ringkasan metrik
+        run: |
+          {
+            echo "### Hasil training"
+            echo '```json'
+            python -c "import json; m=json.load(open('models/metrics.json')); m.pop('cv'); print(json.dumps(m, indent=2))"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload trained model
         uses: actions/upload-artifact@v4
         with:
           name: trained-model
-          path: models/
+          path: models/*
           retention-days: 30
