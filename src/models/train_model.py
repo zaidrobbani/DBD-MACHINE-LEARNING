@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from src.features.build_features import feature_columns
 from src.models.residual import ResidualRegressor
 from src.schema import DATE, TARGET
+from src.tracking import mlflow_run
 from src.utils import config_arg_parser, load_config
 from src.visualization.visualize import plot_forecast
 
@@ -80,6 +81,30 @@ def cross_validate_temporal(model_cfg, seed, train, features, n_splits, gap) -> 
         "model_mae_mean": float(np.mean([f["model_mae"] for f in folds])),
         "baseline_mae_mean": float(np.mean([f["baseline_mae"] for f in folds])),
     }
+
+
+def log_training(experiment: str, metrics: dict, split_cfg: dict, trained_until: str, artifacts: list[str]) -> None:
+    with mlflow_run(experiment, f"{metrics['model_type']} s/d {trained_until}") as tracker:
+        tracker.log_params({
+            "model_type": metrics["model_type"],
+            "residual_on": metrics["residual_on"],
+            "horizon_days": metrics["horizon_days"],
+            "test_days": split_cfg["test_days"],
+            "cv_folds": split_cfg["cv_folds"],
+            "n_train": metrics["n_train"],
+            "n_test": metrics["n_test"],
+            "trained_until": trained_until,
+            **{f"model_{k}": v for k, v in metrics["params"].items()},
+        })
+        tracker.log_metrics({
+            **{f"test_{k}": v for k, v in metrics["test"].items()},
+            **{f"baseline_{k}": v for k, v in metrics["baseline_test"].items()},
+            "skill_vs_baseline_mae": metrics["skill_vs_baseline_mae"],
+            "cv_model_mae": metrics["cv"]["model_mae_mean"],
+            "cv_baseline_mae": metrics["cv"]["baseline_mae_mean"],
+        })
+        for path in artifacts:
+            tracker.log_artifact(path)
 
 
 def period(df: pd.DataFrame) -> list[str]:
@@ -150,6 +175,9 @@ def main(config_path: str) -> None:
     Path(paths["metrics_path"]).write_text(json.dumps(metrics, indent=2))
     plot_forecast(test[DATE], test[TARGET], test_pred, test[model_cfg["baseline_feature"]],
                   paths["forecast_plot_path"], horizon)
+
+    log_training(config["tracking"]["training_experiment"], metrics, split_cfg, period(final_data)[1],
+                 [paths["metrics_path"], paths["forecast_plot_path"]])
 
     print(f"[train_model] Model: {model_path} | metrik: {paths['metrics_path']} | plot: {paths['forecast_plot_path']}")
     if not metrics["beats_baseline"]:

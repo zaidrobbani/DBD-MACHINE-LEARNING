@@ -35,6 +35,7 @@ MLOps-DBD/
 ├── src/                       # Source code modular (dapat diimpor sebagai package)
 │   ├── schema.py              # Satu-satunya sumber nama kolom dataset
 │   ├── utils.py               # Helper bersama: load_config, argparse --config, reindex_daily
+│   ├── tracking.py            # Logging MLflow ke DagsHub (no-op kalau MLFLOW_TRACKING_URI tidak diset)
 │   ├── ingestion/
 │   │   ├── ingestion_data.py  # Pengumpul data: Wikipedia Pageviews + Open-Meteo -> data/raw/
 │   │   └── verify_data_access.py # Cek akses kedua API (memakai ulang fungsi ingestion, tanpa menyimpan file)
@@ -208,6 +209,26 @@ python -m src.monitoring.check_drift    # cetak retrain=true/false beserta alasa
 
 Di GitHub Actions, keputusan ditulis ke `$GITHUB_OUTPUT` (`retrain=true|false`) dan rinciannya ke job summary.
 
+### Monitoring & grafik (MLflow di DagsHub)
+
+Setiap training dan setiap cek drift dicatat sebagai satu *run* MLflow di server MLflow bawaan DagsHub. Grafiknya ada di **DagsHub → tab Experiments** (atau tombol **Go to MLflow UI**):
+
+| Experiment | Satu run = | Isi |
+|---|---|---|
+| `dbd-training` | satu kali training | params model & split; metrik `test_mae/rmse/r2`, `baseline_*`, `skill_vs_baseline_mae`, `cv_*`; artifact `forecast_test.png` + `metrics.json`; tag `trigger` (alasan retrain) dan `git_commit` |
+| `dbd-drift-monitoring` | satu kali cek drift | `zscore`, `recent_mean`, `reference_mean`, `recent_mae`, `mae_ratio`, `model_age_days`, `retrain` (0/1); tag `reasons` |
+
+Pilih beberapa run lalu **Compare** untuk melihat tren, misalnya `test_mae` vs `baseline_mae` antar retrain, atau `zscore` dari hari ke hari.
+
+Logging hanya aktif kalau env `MLFLOW_TRACKING_URI` diset (`src/tracking.py`); tanpa itu (unit test, run lokal biasa) tidak ada yang dikirim. Di GitHub Actions env-nya diisi dari secret `DAGSHUB_TOKEN`. Untuk mengirim dari laptop:
+
+```bash
+export MLFLOW_TRACKING_URI=https://dagshub.com/zaidrobbani/DBD-MACHINE-LEARNING.mlflow
+export MLFLOW_TRACKING_USERNAME=zaidrobbani
+export MLFLOW_TRACKING_PASSWORD=<token DagsHub>
+dvc repro -f train
+```
+
 ## Pipeline ML & CI/CT
 
 ### Formulasi masalah
@@ -254,7 +275,7 @@ cron / manual ──────▶ 1. Test ─▶ 2. Data ───────
 3. **Train**: `dvc repro --force` (validate → preprocess → features → train) → forecast 7 hari. Metrik dan alasan retrain tampil di *job summary*. Model di-`dvc push`, `dvc.lock` + `metrics.json` di-commit (`model: retrain (<alasan>)`), dan model juga diunggah sebagai artifact.
 
 Kebutuhan:
-- Secret repo **`DAGSHUB_TOKEN`** (Settings → Secrets and variables → Actions) berisi token DagsHub. Kredensial ditulis ke `.dvc/config.local` oleh `.github/actions/setup-dvc`, tidak pernah di-commit.
+- Secret repo **`DAGSHUB_TOKEN`** (Settings → Secrets and variables → Actions) berisi token DagsHub. Dipakai untuk remote DVC (ditulis ke `.dvc/config.local` oleh `.github/actions/setup-dvc`, tidak pernah di-commit) dan untuk MLflow (`MLFLOW_TRACKING_PASSWORD`).
 - Jadwal cron hanya dijalankan GitHub dari workflow di branch **`main`**.
 - Pipeline meng-commit ke branch yang dijalankan, jadi jalankan `git pull` sebelum lanjut bekerja di lokal.
 

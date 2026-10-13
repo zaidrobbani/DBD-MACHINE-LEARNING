@@ -43,6 +43,11 @@ jobs:
     concurrency:
       group: ct-${{ github.ref }}
       cancel-in-progress: false
+    env:
+      MLFLOW_TRACKING_URI: https://dagshub.com/zaidrobbani/DBD-MACHINE-LEARNING.mlflow
+      MLFLOW_TRACKING_USERNAME: zaidrobbani
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+      MLFLOW_DISABLE_AGENT_HINT: "1"
     outputs:
       retrain: ${{ steps.drift.outputs.retrain }}
       sha: ${{ steps.version.outputs.sha }}
@@ -113,7 +118,11 @@ jobs:
       group: ct-${{ github.ref }}
       cancel-in-progress: false
     env:
-      REASON: >-
+      MLFLOW_TRACKING_URI: https://dagshub.com/zaidrobbani/DBD-MACHINE-LEARNING.mlflow
+      MLFLOW_TRACKING_USERNAME: zaidrobbani
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+      RETRAIN_REASON: >-
         ${{ inputs.force_train && 'manual (force_train)'
         || github.event.schedule == '17 3 * * 1' && 'jadwal mingguan'
         || 'drift terdeteksi' }}
@@ -139,7 +148,7 @@ jobs:
       - name: Ringkasan metrik
         run: |
           {
-            echo "### Hasil training (alasan: $REASON)"
+            echo "### Hasil training (alasan: $RETRAIN_REASON)"
             echo '```json'
             python -c "import json; m=json.load(open('models/metrics.json')); m.pop('cv'); print(json.dumps(m, indent=2))"
             echo '```'
@@ -149,7 +158,7 @@ jobs:
         run: |
           dvc push
           git add dvc.lock models/metrics.json
-          git commit -m "model: retrain ($REASON)"
+          git commit -m "model: retrain ($RETRAIN_REASON)"
           git pull --rebase origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
 

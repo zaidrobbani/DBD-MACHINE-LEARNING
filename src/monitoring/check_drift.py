@@ -15,6 +15,7 @@ dan alasannya ke $GITHUB_STEP_SUMMARY.
 """
 
 import json
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from src.schema import DATE, PAGE_VIEWS, TARGET
+from src.tracking import mlflow_run
 from src.utils import config_arg_parser, load_config, reindex_daily
 
 
@@ -102,6 +104,26 @@ def summary_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def log_drift(experiment: str, report: dict, run_date: str) -> None:
+    signals = report["signals"]
+    data, perf = signals["data_drift"], signals["performance_drift"] or {}
+    values = {
+        "zscore": data["zscore"],
+        "recent_mean": data["recent_mean"],
+        "reference_mean": data["reference_mean"],
+        "recent_mae": perf.get("mae"),
+        "mae_ratio": perf.get("mae_ratio"),
+        "model_age_days": signals["model_age_days"],
+        "retrain": float(report["retrain"]),
+    }
+    with mlflow_run(experiment, f"cek drift {run_date}") as tracker:
+        tracker.log_metrics({k: v for k, v in values.items() if v is not None and math.isfinite(v)})
+        tracker.set_tags({
+            "reasons": "; ".join(report["reasons"]) or "-",
+            "suppressed": "; ".join(report["suppressed"]) or "-",
+        })
+
+
 def main(config_path: str) -> None:
     config = load_config(config_path)
     paths, mon_cfg = config["paths"], config["monitoring"]
@@ -120,6 +142,7 @@ def main(config_path: str) -> None:
 
     report = decide(data, perf, age, mon_cfg)
     report["signals"] = {"data_drift": data, "performance_drift": perf, "model_age_days": age}
+    log_drift(config["tracking"]["drift_experiment"], report, str(raw.index.max().date()))
 
     print(f"[check_drift] retrain={str(report['retrain']).lower()}")
     for reason in report["reasons"]:

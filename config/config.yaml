@@ -42,6 +42,12 @@ ingestion:
 preprocessing:
   max_interpolate_gap_days: 3
 
+# Experiment MLflow di DagsHub (src/tracking.py). Logging hanya aktif kalau
+# env MLFLOW_TRACKING_URI diset.
+tracking:
+  training_experiment: dbd-training
+  drift_experiment: dbd-drift-monitoring
+
 # Retrain di luar jadwal mingguan (src/monitoring/check_drift.py).
 monitoring:
   drift_window_days: 7       # rata-rata page_views terbaru yang dibandingkan

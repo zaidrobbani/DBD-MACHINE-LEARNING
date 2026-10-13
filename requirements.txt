@@ -23,3 +23,6 @@ pytest==8.2.2
 
 # --- Data versioning ---
 dvc==3.67.1
+
+# --- Experiment tracking (client ke server MLflow DagsHub) ---
+mlflow-skinny==3.17.0

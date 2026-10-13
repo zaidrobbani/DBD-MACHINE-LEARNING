@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-13T06:21:55.461311+00:00",
+  "timestamp": "2026-10-13T08:27:44.223735+00:00",
   "model_type": "random_forest",
   "residual_on": "pv_mean_7",
   "params": {
