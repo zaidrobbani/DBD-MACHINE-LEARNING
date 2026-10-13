@@ -1,0 +1,27 @@
+name: Setup DVC remote
+description: Kredensial remote DVC (DagsHub) + identitas git bot untuk commit hasil pipeline.
+
+inputs:
+  token:
+    description: Token DagsHub (secrets.DAGSHUB_TOKEN)
+    required: true
+  user:
+    description: Username DagsHub
+    default: zaidrobbani
+
+runs:
+  using: composite
+  steps:
+    - name: Configure DVC remote credentials
+      shell: bash
+      # --local: kredensial ditulis ke .dvc/config.local (tidak di-commit).
+      run: |
+        dvc remote modify origin --local auth basic
+        dvc remote modify origin --local user "${{ inputs.user }}"
+        dvc remote modify origin --local password "${{ inputs.token }}"
+
+    - name: Configure git bot identity
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

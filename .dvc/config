@@ -1,4 +1,6 @@
 [core]
-    remote = localstorage
+    remote = origin
 ['remote "localstorage"']
     url = /home/zaidrobbani/dvc-storage-dbd
+['remote "origin"']
+    url = https://dagshub.com/zaidrobbani/DBD-MACHINE-LEARNING.dvc
