@@ -14,8 +14,9 @@ MLOps-DBD/
 │   └── devcontainer.json      # Konfigurasi GitHub Codespaces (Python 3.11 + dependencies)
 ├── .github/
 │   ├── actions/setup-env/     # Composite action: setup Python + install dependency (dipakai semua job)
+│   ├── actions/setup-dvc/     # Composite action: kredensial remote DVC (DagsHub) + identitas git bot
 │   └── workflows/
-│       └── ml-pipeline.yml    # CI/CT: test -> ingest -> validate -> train (lihat bagian di bawah)
+│       └── ml-pipeline.yml    # CI/CT: test -> ingest -> validate -> drift -> train (lihat bagian di bawah)
 ├── config/
 │   └── config.yaml            # Parameter proyek, ingestion, validasi & eksperimen
 ├── data/
@@ -27,7 +28,7 @@ MLOps-DBD/
 │   ├── processed/              # Data siap-latih / fitur final (di-ignore git)
 │   ├── external/                # Data pihak ketiga (di-ignore git)
 │   └── validation/             # Laporan JSON hasil validasi data (di-ignore git)
-├── models/                    # Artefak model terlatih (.pkl, dll — di-ignore git)
+├── models/                    # Artefak model (isinya di DVC); hanya metrics.json yang di-commit ke git
 ├── tests/                     # Unit test (pytest) yang dijalankan di CI
 ├── notebooks/                 # Notebook eksplorasi & eksperimen
 │   └── 0.1-initial-eda.ipynb  # Notebook EDA awal
@@ -48,8 +49,12 @@ MLOps-DBD/
 │   │   ├── train_model.py     # Training + validasi temporal + perbandingan dengan baseline
 │   │   ├── residual.py        # Wrapper model yang memprediksi selisih dari rata-rata 7 hari
 │   │   └── predict_model.py   # Forecast 7 hari ke depan dari data terbaru
+│   ├── monitoring/
+│   │   └── check_drift.py     # Putuskan retrain di luar jadwal: data drift, performance drift, umur model
 │   └── visualization/
 │       └── visualize.py       # Plot forecast vs aktual periode test (dipakai train_model)
+├── dvc.yaml                   # Pipeline DVC: validate -> preprocess -> features -> train
+├── dvc.lock                   # Hash input/output tiap stage (dibuat `dvc repro`, di-commit ke git)
 ├── .gitignore
 ├── LICENSE                    # MIT License
 ├── requirements.txt           # Dependency Python
@@ -169,6 +174,40 @@ dvc checkout
 
 > `data/raw/` sengaja **tidak** di-ignore di `.gitignore` root. Kalau di-ignore, DVC ikut melewatkan file `.dvc` di folder itu (`dvc status` menjawab "no data tracked"). Yang di-ignore cukup `dataset.csv`, lewat `data/raw/.gitignore` yang ditulis `dvc add`.
 
+### Pipeline DVC (`dvc.yaml`)
+
+Tahap `validate → preprocess → features → train` didefinisikan di `dvc.yaml`, dengan parameter dibaca langsung dari `config/config.yaml`. `dvc repro` hanya menjalankan ulang tahap yang data, kode, atau parameternya berubah. Ingestion tidak jadi stage karena hasilnya bergantung pada API eksternal.
+
+```bash
+dvc repro                 # jalankan tahap yang berubah saja
+dvc repro -f train        # paksa train ulang
+dvc dag                   # alur antar tahap
+dvc metrics show          # metrik model (models/metrics.json, di-commit ke git)
+dvc metrics diff main     # bandingkan metrik dengan branch main
+dvc params diff           # parameter config yang berubah
+```
+
+Setelah `dvc repro`, commit `dvc.lock` dan `models/metrics.json`, lalu `dvc push` (model dan data antara disimpan di remote DVC).
+
+### Retrain berbasis drift (`src/monitoring/check_drift.py`)
+
+Selain retrain terjadwal, model dilatih ulang kalau salah satu sinyal ini terpenuhi (ambang di `monitoring` pada config):
+
+| Sinyal | Kondisi |
+|---|---|
+| Data drift | Rata-rata `page_views` 7 hari terakhir punya \|z-score\| > 3 terhadap rata-rata mingguan 90 hari sebelumnya |
+| Performance drift | MAE pada data yang baru berlabel (sesudah `trained_until`) > 1.5× MAE test |
+| Umur model | Model lebih tua dari 10 hari (pengaman kalau retrain terjadwal gagal) |
+| Model belum ada | Selalu retrain |
+
+Sinyal drift diabaikan selama 3 hari setelah training (`drift_cooldown_days`), supaya lonjakan yang bertahan lama tidak memicu training setiap hari.
+
+```bash
+python -m src.monitoring.check_drift    # cetak retrain=true/false beserta alasannya
+```
+
+Di GitHub Actions, keputusan ditulis ke `$GITHUB_OUTPUT` (`retrain=true|false`) dan rinciannya ke job summary.
+
 ## Pipeline ML & CI/CT
 
 ### Formulasi masalah
@@ -193,29 +232,39 @@ Data time-series **tidak boleh di-split acak** (`train_test_split` dengan shuffl
 ### Alur CI/CT (`.github/workflows/ml-pipeline.yml`)
 
 ```
-push / PR / cron harian / manual
-        │
-        ▼
-┌──────────────┐   ┌───────────────────┐   ┌──────────────────┐   ┌────────────────────────────┐
-│ 1. Test (CI) │──▶│ 2. Ingest         │──▶│ 3. Validate      │──▶│ 4. Train (CT)              │
-│ ruff+pytest  │   │ ingestion_data.py │   │ validate_dataset │   │ preprocess -> features ->  │
-└──────────────┘   │ --backfill        │   │ (gate)           │   │ train_model -> predict     │
-                   └───────────────────┘   └──────────────────┘   └────────────────────────────┘
+push / PR ──────────▶ 1. Test (CI): ruff + pytest ── selesai
+
+cron / manual ──────▶ 1. Test ─▶ 2. Data ─────────────────────────────▶ 3. Train (CT)
+                                 dvc pull                               (hanya jika perlu)
+                                 ingest incremental (14 hari)           dvc pull
+                                 validate (gate)                        dvc repro --force
+                                 cek drift ─▶ retrain=true/false        predict
+                                 dvc add + dvc push + git commit        dvc push + git commit
 ```
 
-1. **Test**: `ruff check` + `pytest` (unit test anti-leakage fitur, split temporal, aturan validasi). Tanpa akses jaringan.
-2. **Ingest**: runner GitHub selalu mulai kosong, jadi histori 730 hari diambil ulang dengan `--backfill` (kedua API gratis, tanpa API key).
-3. **Validate (gate)**: cek kolom wajib, jumlah baris, tanggal duplikat, missing value, rentang nilai (mis. kelembapan 0-100), dan kesegaran data. Gagal = training tidak jalan.
-4. **Train**: preprocess -> build features -> training dengan validasi temporal -> forecast 7 hari. Metrik tampil di *job summary* GitHub Actions; model + `metrics.json` diunggah sebagai artifact.
+| Trigger | Jadwal (WIB) | Train jalan kalau |
+|---|---|---|
+| Push / PR | — | tidak pernah (test saja) |
+| Cek harian | Selasa–Minggu 10:17 | `check_drift` memutuskan `retrain=true` |
+| Retrain mingguan | Senin 10:17 | selalu |
+| Manual (**Actions → Run workflow**) | kapan saja | `force_train` dicentang, atau drift |
+
+1. **Test**: `ruff check` + `pytest` (unit test anti-leakage fitur, split temporal, aturan validasi, cek drift). Tanpa akses jaringan.
+2. **Data**: `dvc pull` dataset kumulatif dan model terakhir dari DagsHub, tambah data 14 hari terakhir, lalu **validasi (gate)**: cek kolom wajib, jumlah baris, tanggal duplikat, missing value, rentang nilai, dan kesegaran data. Gagal = tidak ada commit dan training tidak jalan. Setelah itu `check_drift` memutuskan perlu retrain atau tidak, dan versi dataset baru di-`dvc push` + di-commit (`data: ingest s/d <tanggal>`).
+3. **Train**: `dvc repro --force` (validate → preprocess → features → train) → forecast 7 hari. Metrik dan alasan retrain tampil di *job summary*. Model di-`dvc push`, `dvc.lock` + `metrics.json` di-commit (`model: retrain (<alasan>)`), dan model juga diunggah sebagai artifact.
+
+Kebutuhan:
+- Secret repo **`DAGSHUB_TOKEN`** (Settings → Secrets and variables → Actions) berisi token DagsHub. Kredensial ditulis ke `.dvc/config.local` oleh `.github/actions/setup-dvc`, tidak pernah di-commit.
+- Jadwal cron hanya dijalankan GitHub dari workflow di branch **`main`**.
+- Pipeline meng-commit ke branch yang dijalankan, jadi jalankan `git pull` sebelum lanjut bekerja di lokal.
 
 Jalankan pipeline yang sama secara lokal:
 
 ```bash
-python -m src.ingestion.ingestion_data --backfill
-python -m src.data.validate_dataset
-python -m src.data.preprocess
-python -m src.features.build_features
-python -m src.models.train_model
+dvc pull                                     # dataset + model terakhir dari DagsHub
+python -m src.ingestion.ingestion_data       # tambah data terbaru
+python -m src.monitoring.check_drift         # perlu retrain?
+dvc repro                                    # validate -> preprocess -> features -> train
 python -m src.models.predict_model
 python -m pytest -q && ruff check src tests
 ```

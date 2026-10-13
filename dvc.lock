@@ -1,0 +1,191 @@
+schema: '2.0'
+stages:
+  validate:
+    cmd: python -m src.data.validate_dataset
+    deps:
+    - path: data/raw/dataset.csv
+      hash: md5
+      md5: f92ba5dad3c69036ad630541cf47a461
+      size: 33655
+    - path: src/data/validate_dataset.py
+      hash: md5
+      md5: 890ec5fda043b12641ad114ddc80fdb3
+      size: 3618
+    - path: src/schema.py
+      hash: md5
+      md5: 44db933d615ca4fa80305356dbb0fd4f
+      size: 665
+    params:
+      config/config.yaml:
+        validation:
+          min_rows: 14
+          max_missing_ratio: 0.05
+          max_duplicate_dates: 0
+          max_staleness_days: 7
+          ranges:
+            page_views:
+            - 0
+            - 
+            precipitation_sum:
+            - 0
+            - 500
+            temperature_mean:
+            - -10
+            - 45
+            relative_humidity_mean:
+            - 0
+            - 100
+  preprocess:
+    cmd: python -m src.data.preprocess
+    deps:
+    - path: data/raw/dataset.csv
+      hash: md5
+      md5: f92ba5dad3c69036ad630541cf47a461
+      size: 33655
+    - path: src/data/preprocess.py
+      hash: md5
+      md5: a194e19d8f148d574b40be37f1bb194b
+      size: 1906
+    - path: src/data/validate_dataset.py
+      hash: md5
+      md5: 890ec5fda043b12641ad114ddc80fdb3
+      size: 3618
+    - path: src/schema.py
+      hash: md5
+      md5: 44db933d615ca4fa80305356dbb0fd4f
+      size: 665
+    - path: src/utils.py
+      hash: md5
+      md5: 86027b27e5328123a95ca48cb99fabb5
+      size: 941
+    params:
+      config/config.yaml:
+        preprocessing:
+          max_interpolate_gap_days: 3
+        validation:
+          min_rows: 14
+          max_missing_ratio: 0.05
+          max_duplicate_dates: 0
+          max_staleness_days: 7
+          ranges:
+            page_views:
+            - 0
+            - 
+            precipitation_sum:
+            - 0
+            - 500
+            temperature_mean:
+            - -10
+            - 45
+            relative_humidity_mean:
+            - 0
+            - 100
+    outs:
+    - path: data/interim/dataset_clean.csv
+      hash: md5
+      md5: f92ba5dad3c69036ad630541cf47a461
+      size: 33655
+  features:
+    cmd: python -m src.features.build_features
+    deps:
+    - path: data/interim/dataset_clean.csv
+      hash: md5
+      md5: f92ba5dad3c69036ad630541cf47a461
+      size: 33655
+    - path: src/features/build_features.py
+      hash: md5
+      md5: 2b16e9404e02c380b62c43b13b3c1eb6
+      size: 3076
+    - path: src/utils.py
+      hash: md5
+      md5: 86027b27e5328123a95ca48cb99fabb5
+      size: 941
+    params:
+      config/config.yaml:
+        features:
+          horizon_days: 7
+          page_view_lags:
+          - 1
+          - 2
+          - 3
+          - 7
+          - 14
+          page_view_windows:
+          - 7
+          - 14
+          - 28
+          weather_windows:
+          - 7
+          - 14
+          - 28
+          weather_lag_window: 14
+          weather_lags:
+          - 7
+          - 14
+    outs:
+    - path: data/processed/features.csv
+      hash: md5
+      md5: 6624e68d969a0669a99a16a04ab0efa7
+      size: 231736
+  train:
+    cmd: python -m src.models.train_model
+    deps:
+    - path: data/processed/features.csv
+      hash: md5
+      md5: 6624e68d969a0669a99a16a04ab0efa7
+      size: 231736
+    - path: src/features/build_features.py
+      hash: md5
+      md5: 2b16e9404e02c380b62c43b13b3c1eb6
+      size: 3076
+    - path: src/models/residual.py
+      hash: md5
+      md5: 7880bf8d6fd0a2fec48310f305e746d4
+      size: 746
+    - path: src/models/train_model.py
+      hash: md5
+      md5: 0e18311fbf51ce617ad73ca03553496e
+      size: 7071
+    - path: src/visualization/visualize.py
+      hash: md5
+      md5: 9d5fa3359db520699405156da67a43ec
+      size: 673
+    params:
+      config/config.yaml:
+        features.horizon_days: 7
+        model:
+          type: random_forest
+          baseline_feature: pv_mean_7
+          residual: true
+          refit_on_full_data: true
+          params:
+            random_forest:
+              n_estimators: 300
+              max_depth: 4
+              min_samples_leaf: 30
+              max_features: 0.5
+              n_jobs: -1
+            gradient_boosting:
+              max_iter: 300
+              learning_rate: 0.05
+              max_depth: 4
+            ridge:
+              alpha: 1.0
+        project.seed: 42
+        split:
+          test_days: 90
+          cv_folds: 5
+          min_train_rows: 180
+    outs:
+    - path: models/forecast_test.png
+      hash: md5
+      md5: 5635eb1863bac2a90ff651ee1147f2c3
+      size: 93192
+    - path: models/metrics.json
+      hash: md5
+      md5: b4f25b0a369f994bae26a28a0cc1e962
+      size: 1714
+    - path: models/model.pkl
+      hash: md5
+      md5: a5ce374758cf4d416a2b24bb870e64ec
+      size: 427511
