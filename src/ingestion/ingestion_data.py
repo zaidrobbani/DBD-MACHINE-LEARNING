@@ -1,128 +1,130 @@
-import argparse
-import os
 import sys
-from datetime import date, timedelta, datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import requests
-import yaml
+
+from src.data.versioning import diff_datasets, merge_into_dataset
+from src.schema import DATE, FETCHED_AT, OPEN_METEO_VARIABLES, PAGE_VIEWS, RAW_COLUMNS, WEATHER_COLUMNS
+from src.utils import config_arg_parser, load_config
 
 
-def load_config(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def build_date_range(days_back, end_offset_days):
-    end_date = date.today() - timedelta(days=end_offset_days)
+def build_date_range(days_back, end_offset_days, end_date=None):
+    end_date = end_date or date.today() - timedelta(days=end_offset_days)
     start_date = end_date - timedelta(days=days_back - 1)
     return start_date, end_date
 
 
 def fetch_wikipedia_pageviews(cfg, start_date, end_date):
     wiki = cfg["wikipedia"]
-    start_str = start_date.strftime("%Y%m%d")
-    end_str = end_date.strftime("%Y%m%d")
     url = (
         f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/"
         f"{wiki['project']}/{wiki['access']}/{wiki['agent']}/{wiki['article']}/"
-        f"{wiki['granularity']}/{start_str}/{end_str}"
+        f"{wiki['granularity']}/{start_date:%Y%m%d}/{end_date:%Y%m%d}"
     )
-    headers = {"User-Agent": wiki["user_agent"]}
-    response = requests.get(url, headers=headers, timeout=30)
+    response = requests.get(url, headers={"User-Agent": wiki["user_agent"]}, timeout=30)
     response.raise_for_status()
-    items = response.json().get("items", [])
-    records = []
-    for item in items:
-        ts = item["timestamp"]
-        record_date = datetime.strptime(ts[:8], "%Y%m%d").date()
-        records.append({"date": record_date, "page_views": item["views"]})
-    return pd.DataFrame(records)
+    records = [
+        {DATE: datetime.strptime(item["timestamp"][:8], "%Y%m%d").date(), PAGE_VIEWS: item["views"]}
+        for item in response.json().get("items", [])
+    ]
+    return pd.DataFrame(records, columns=[DATE, PAGE_VIEWS])
 
 
-def fetch_open_meteo(cfg, start_date, end_date):
-    loc = cfg["location"]
-    meteo = cfg["open_meteo"]
+def request_open_meteo(url, cfg, start_date, end_date):
     params = {
-        "latitude": loc["latitude"],
-        "longitude": loc["longitude"],
-        "start_date": start_date.strftime("%Y-%m-%d"),
-        "end_date": end_date.strftime("%Y-%m-%d"),
-        "daily": ",".join(meteo["daily_variables"]),
+        "latitude": cfg["location"]["latitude"],
+        "longitude": cfg["location"]["longitude"],
+        "start_date": f"{start_date:%Y-%m-%d}",
+        "end_date": f"{end_date:%Y-%m-%d}",
+        "daily": ",".join(OPEN_METEO_VARIABLES),
         "timezone": cfg["project"]["timezone"],
     }
-    response = requests.get(meteo["base_url"], params=params, timeout=30)
+    response = requests.get(url, params=params, timeout=60)
     response.raise_for_status()
     daily = response.json().get("daily", {})
     if not daily:
-        return pd.DataFrame(columns=["date"] + meteo["daily_variables"])
-    df = pd.DataFrame(daily)
-    df["date"] = pd.to_datetime(df["time"]).dt.date
-    df = df.drop(columns=["time"])
-    rename_map = {
-        "temperature_2m_mean": "temperature_mean",
-        "precipitation_sum": "precipitation_sum",
-        "relative_humidity_2m_mean": "relative_humidity_mean",
-    }
-    df = df.rename(columns=rename_map)
-    return df
+        return pd.DataFrame(columns=[DATE, *WEATHER_COLUMNS]).set_index(DATE)
+    df = pd.DataFrame(daily).rename(columns=OPEN_METEO_VARIABLES)
+    df[DATE] = pd.to_datetime(df.pop("time")).dt.date
+    return df.set_index(DATE)
+
+
+def fetch_open_meteo(cfg, start_date, end_date):
+    # Archive API (ERA5) untuk histori panjang; beberapa hari terakhir biasanya
+    # belum tersedia, jadi diisi dari Forecast API yang hanya menyimpan ~3 bulan.
+    meteo = cfg["open_meteo"]
+    df = request_open_meteo(meteo["archive_url"], cfg, start_date, end_date)
+    df = df.reindex(pd.date_range(start_date, end_date, freq="D").date)
+    if df.isna().any().any():
+        recent_start = max(start_date, date.today() - timedelta(days=meteo["forecast_max_past_days"]))
+        if recent_start <= end_date:
+            df = df.combine_first(request_open_meteo(meteo["base_url"], cfg, recent_start, end_date))
+    df.index.name = DATE
+    return df.reset_index()
 
 
 def merge_sources(wiki_df, meteo_df):
-    merged = pd.merge(wiki_df, meteo_df, on="date", how="outer")
-    merged = merged.sort_values("date").reset_index(drop=True)
-    merged["fetched_at"] = datetime.now().isoformat(timespec="seconds")
-    columns = ["date", "page_views", "precipitation_sum", "temperature_mean", "relative_humidity_mean", "fetched_at"]
-    for col in columns:
-        if col not in merged.columns:
-            merged[col] = pd.NA
-    return merged[columns]
+    merged = pd.merge(wiki_df, meteo_df, on=DATE, how="outer").sort_values(DATE).reset_index(drop=True)
+    merged[FETCHED_AT] = datetime.now().isoformat(timespec="seconds")
+    return merged.reindex(columns=RAW_COLUMNS)
 
 
-def save_snapshot(df, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    snapshot_path = os.path.join(output_dir, f"raw_{timestamp}.csv")
-    df.to_csv(snapshot_path, index=False)
-    latest_path = os.path.join(output_dir, "latest.csv")
-    df.to_csv(latest_path, index=False)
-    return snapshot_path, latest_path
+def fetch_all(cfg, start_date, end_date):
+    """Ambil dan gabungkan kedua sumber. Keluar dengan error jika salah satu API gagal."""
+    sources = [("Wikipedia Pageviews API", fetch_wikipedia_pageviews), ("Open-Meteo API", fetch_open_meteo)]
+    frames = []
+    for name, fetch in sources:
+        try:
+            df = fetch(cfg, start_date, end_date)
+        except requests.RequestException as e:
+            print(f"Gagal mengambil data {name}: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"{name}: {len(df)} baris berhasil diambil")
+        frames.append(df)
+    return merge_sources(*frames)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Ingest data dinamis DBD dari Wikipedia Pageviews dan Open-Meteo")
-    parser.add_argument("--config", default="config/config.yaml")
+    parser = config_arg_parser("Ingest data dinamis DBD dari Wikipedia Pageviews dan Open-Meteo")
     parser.add_argument("--days-back", type=int, default=None)
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Ambil histori panjang (ingestion.history_days) untuk kebutuhan training",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=date.fromisoformat,
+        default=None,
+        help="Tanggal akhir (YYYY-MM-DD). Default: hari ini - ingestion.end_date_offset_days",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    days_back = args.days_back or cfg["ingestion"]["days_back"]
-    end_offset_days = cfg["ingestion"]["end_date_offset_days"]
-    output_dir = cfg["ingestion"]["output_dir"]
+    ing_cfg = cfg["ingestion"]
+    days_back = args.days_back or (ing_cfg["history_days"] if args.backfill else ing_cfg["days_back"])
 
-    start_date, end_date = build_date_range(days_back, end_offset_days)
+    start_date, end_date = build_date_range(days_back, ing_cfg["end_date_offset_days"], args.end_date)
     print(f"Mengambil data untuk rentang {start_date} sampai {end_date}")
+    fetched = fetch_all(cfg, start_date, end_date)
 
-    try:
-        wiki_df = fetch_wikipedia_pageviews(cfg, start_date, end_date)
-        print(f"Wikipedia Pageviews API: {len(wiki_df)} baris berhasil diambil")
-    except requests.RequestException as e:
-        print(f"Gagal mengambil data Wikipedia Pageviews API: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Dataset mentah bersifat kumulatif: data baru ditambahkan ke data lama,
+    # bukan menimpanya. Riwayat setiap versi disimpan oleh DVC.
+    dataset_path = Path(cfg["paths"]["raw_dataset"])
+    existing = pd.read_csv(dataset_path) if dataset_path.exists() else None
+    dataset = merge_into_dataset(existing, fetched)
+    dataset_path.parent.mkdir(parents=True, exist_ok=True)
+    dataset.to_csv(dataset_path, index=False)
 
-    try:
-        meteo_df = fetch_open_meteo(cfg, start_date, end_date)
-        print(f"Open-Meteo API: {len(meteo_df)} baris berhasil diambil")
-    except requests.RequestException as e:
-        print(f"Gagal mengambil data Open-Meteo API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    merged = merge_sources(wiki_df, meteo_df)
-    snapshot_path, latest_path = save_snapshot(merged, output_dir)
-
-    print(f"Snapshot baru disimpan di {snapshot_path}")
-    print(f"Pointer terbaru diperbarui di {latest_path}")
-    print(merged.head(10).to_string(index=False))
+    if existing is None:
+        print(f"Dataset baru dibuat di {dataset_path}: {len(dataset)} baris")
+    else:
+        diff = diff_datasets(existing, dataset)
+        print(f"Dataset diperbarui di {dataset_path}: {diff['rows_old']} -> {diff['rows_new']} baris "
+              f"(+{diff['rows_added']} baru, {diff['rows_changed']} direvisi)")
+    print(f"Rentang data: {dataset[DATE].min()} s/d {dataset[DATE].max()}")
 
 
 if __name__ == "__main__":
