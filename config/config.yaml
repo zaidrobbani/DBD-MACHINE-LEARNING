@@ -42,6 +42,16 @@ ingestion:
 preprocessing:
   max_interpolate_gap_days: 3
 
+# Retrain di luar jadwal mingguan (src/monitoring/check_drift.py).
+monitoring:
+  drift_window_days: 7       # rata-rata page_views terbaru yang dibandingkan
+  reference_days: 90         # periode referensi sebelum jendela terbaru
+  zscore_threshold: 3.0      # data drift
+  mae_ratio_threshold: 1.5   # performance drift: MAE terbaru / MAE test
+  min_eval_rows: 5           # baris berlabel baru minimal untuk menghitung MAE terbaru
+  max_model_age_days: 10     # pengaman kalau retrain mingguan gagal
+  drift_cooldown_days: 3     # drift tidak memicu retrain selama ini setelah training
+
 # Aturan validasi dipakai di dua titik: data mentah (validate_dataset)
 # dan data bersih (preprocess). Kolom wajib didefinisikan di src/schema.py.
 validation:

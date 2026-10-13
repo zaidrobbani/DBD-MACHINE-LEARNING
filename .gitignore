@@ -57,6 +57,8 @@ data/external/*
 
 models/*
 !models/.gitkeep
+# Metrik di-commit ke git (dvc.yaml: cache: false) supaya `dvc metrics diff` bisa membandingkan antar commit.
+!models/metrics.json
 
 data/validation/*
 !data/validation/.gitkeep

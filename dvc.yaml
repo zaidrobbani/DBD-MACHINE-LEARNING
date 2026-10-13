@@ -1,0 +1,61 @@
+# Pipeline training. Ingestion sengaja tidak jadi stage karena hasilnya
+# bergantung pada API eksternal: dataset mentah dilacak lewat `dvc add`
+# (data/raw/dataset.csv.dvc). Parameter dibaca dari config/config.yaml.
+stages:
+  validate:
+    cmd: python -m src.data.validate_dataset
+    deps:
+      - data/raw/dataset.csv
+      - src/data/validate_dataset.py
+      - src/schema.py
+    params:
+      - config/config.yaml:
+          - validation
+
+  preprocess:
+    cmd: python -m src.data.preprocess
+    deps:
+      - data/raw/dataset.csv
+      - src/data/preprocess.py
+      - src/data/validate_dataset.py
+      - src/schema.py
+      - src/utils.py
+    params:
+      - config/config.yaml:
+          - preprocessing
+          - validation
+    outs:
+      - data/interim/dataset_clean.csv
+
+  features:
+    cmd: python -m src.features.build_features
+    deps:
+      - data/interim/dataset_clean.csv
+      - src/features/build_features.py
+      - src/utils.py
+    params:
+      - config/config.yaml:
+          - features
+    outs:
+      - data/processed/features.csv
+
+  train:
+    cmd: python -m src.models.train_model
+    deps:
+      - data/processed/features.csv
+      - src/models/train_model.py
+      - src/models/residual.py
+      - src/features/build_features.py
+      - src/visualization/visualize.py
+    params:
+      - config/config.yaml:
+          - project.seed
+          - features.horizon_days
+          - split
+          - model
+    outs:
+      - models/model.pkl
+      - models/forecast_test.png
+    metrics:
+      - models/metrics.json:
+          cache: false

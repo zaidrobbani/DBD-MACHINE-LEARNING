@@ -1,4 +1,4 @@
-name: ML Pipeline (CI -> Ingest -> Validate -> Train)
+name: ML Pipeline (CI -> Ingest -> Validate -> Drift -> Train)
 
 on:
   push:
@@ -6,11 +6,19 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch: {}
+    # Cron dalam UTC (03:17 UTC = 10:17 WIB). Menit 17 menghindari antrean awal jam.
+    # Jadwal hanya dijalankan dari workflow di branch default (main).
+    - cron: "17 3 * * 0,2-6"   # cek harian (Selasa-Minggu): train hanya kalau drift
+    - cron: "17 3 * * 1"       # retrain mingguan (Senin): selalu train
+  workflow_dispatch:
+    inputs:
+      force_train:
+        description: Latih ulang model tanpa menunggu hasil cek drift
+        type: boolean
+        default: false
 
 jobs:
-  # CI: kualitas kode + unit test (tanpa akses jaringan).
+  # CI: kualitas kode + unit test (tanpa akses jaringan). Push/PR hanya sampai sini.
   test:
     name: Lint & Unit Test
     runs-on: ubuntu-latest
@@ -24,43 +32,63 @@ jobs:
       - name: Unit test (pytest)
         run: python -m pytest -q
 
-  # CT: tarik data terbaru -> validasi (gate) -> latih ulang model.
-  ingest:
-    name: Data Ingestion
+  # CT: tambah data terbaru ke dataset kumulatif -> validasi (gate) -> cek drift.
+  data:
+    name: Ingest, Validate & Drift Check
     needs: test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ct-${{ github.ref }}
+      cancel-in-progress: false
+    outputs:
+      retrain: ${{ steps.drift.outputs.retrain }}
+      sha: ${{ steps.version.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-env
-
-      # Runner GitHub selalu mulai kosong (data/raw tidak di-commit dan remote
-      # DVC masih lokal), jadi histori training diambil ulang lewat --backfill.
-      - name: Fetch Wikipedia Pageviews + Open-Meteo
-        run: python -m src.ingestion.ingestion_data --backfill
-
-      - name: Upload raw data snapshot
-        uses: actions/upload-artifact@v4
         with:
-          name: raw-data
-          path: data/raw/*.csv
-          retention-days: 14
-
-  validate:
-    name: Data Validation (gate)
-    needs: ingest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          fetch-depth: 0
       - uses: ./.github/actions/setup-env
-
-      - name: Download raw data snapshot
-        uses: actions/download-artifact@v4
+      - uses: ./.github/actions/setup-dvc
         with:
-          name: raw-data
-          path: data/raw/
+          token: ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Pull dataset & model terakhir (DVC)
+        run: dvc pull
+
+      - name: Fetch Wikipedia Pageviews + Open-Meteo (incremental)
+        run: python -m src.ingestion.ingestion_data
 
       - name: Run validation gate
         run: python -m src.data.validate_dataset
+
+      - name: Build features untuk cek performa
+        run: |
+          python -m src.data.preprocess
+          python -m src.features.build_features
+
+      - name: Cek drift
+        id: drift
+        run: python -m src.monitoring.check_drift
+
+      # dvc push dulu, baru git push: pointer di git tidak boleh menunjuk data
+      # yang belum ada di remote.
+      - name: Versi dataset baru (DVC + git)
+        id: version
+        run: |
+          dvc add data/raw/dataset.csv
+          dvc push data/raw/dataset.csv.dvc
+          git add data/raw/dataset.csv.dvc
+          if git diff --cached --quiet; then
+            echo "Dataset tidak berubah, tidak ada commit."
+          else
+            git commit -m "data: ingest s/d $(tail -n 1 data/raw/dataset.csv | cut -d, -f1)"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Upload validation report
         if: always()
@@ -72,26 +100,38 @@ jobs:
 
   train:
     name: Train Model
-    needs: validate
+    needs: data
+    # Nilai cron harus sama persis dengan jadwal Senin di atas.
+    if: >-
+      needs.data.outputs.retrain == 'true' ||
+      github.event.schedule == '17 3 * * 1' ||
+      inputs.force_train
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ct-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      REASON: >-
+        ${{ inputs.force_train && 'manual (force_train)'
+        || github.event.schedule == '17 3 * * 1' && 'jadwal mingguan'
+        || 'drift terdeteksi' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-env
-
-      - name: Download raw data snapshot
-        uses: actions/download-artifact@v4
         with:
-          name: raw-data
-          path: data/raw/
+          ref: ${{ needs.data.outputs.sha }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-env
+      - uses: ./.github/actions/setup-dvc
+        with:
+          token: ${{ secrets.DAGSHUB_TOKEN }}
 
-      - name: Preprocess
-        run: python -m src.data.preprocess
+      - name: Pull data (DVC)
+        run: dvc pull
 
-      - name: Build features
-        run: python -m src.features.build_features
-
-      - name: Train model (validasi temporal)
-        run: python -m src.models.train_model
+      - name: dvc repro (validate -> preprocess -> features -> train)
+        run: dvc repro --force
 
       - name: Forecast 7 hari ke depan
         run: python -m src.models.predict_model
@@ -99,11 +139,19 @@ jobs:
       - name: Ringkasan metrik
         run: |
           {
-            echo "### Hasil training"
+            echo "### Hasil training (alasan: $REASON)"
             echo '```json'
             python -c "import json; m=json.load(open('models/metrics.json')); m.pop('cv'); print(json.dumps(m, indent=2))"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Versi model baru (DVC + git)
+        run: |
+          dvc push
+          git add dvc.lock models/metrics.json
+          git commit -m "model: retrain ($REASON)"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Upload trained model
         uses: actions/upload-artifact@v4
