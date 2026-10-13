@@ -179,12 +179,12 @@ stages:
     outs:
     - path: models/forecast_test.png
       hash: md5
-      md5: 5635eb1863bac2a90ff651ee1147f2c3
-      size: 93192
+      md5: 7a08e2a13d505aca9cab87bfa3fbb8e1
+      size: 93283
     - path: models/metrics.json
       hash: md5
-      md5: 8513c6e05713250d974ef8802e48ca4f
-      size: 1714
+      md5: f7d38b2ae50b08dd6d5721aa52cf07f4
+      size: 1712
     - path: models/model.pkl
       hash: md5
       md5: a5ce374758cf4d416a2b24bb870e64ec
