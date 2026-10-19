@@ -1,5 +1,7 @@
 import mlflow
+import pandas as pd
 import pytest
+from sklearn.linear_model import Ridge
 
 from src.models.train_model import log_training
 from src.monitoring.check_drift import log_drift
@@ -61,10 +63,14 @@ def test_log_training(local_mlflow, tmp_path):
     plot = tmp_path / "forecast_test.png"
     plot.write_bytes(b"png")
 
-    log_training("training", METRICS, {"test_days": 30, "cv_folds": 3}, "2026-10-04", [str(plot)])
+    X = pd.DataFrame({"pv_mean_7": [1.0, 2.0, 3.0]})
+    model = Ridge().fit(X, [1.0, 2.0, 3.0])
+
+    log_training("training", METRICS, "random_forest max_depth=3 s/d 2026-10-04",
+                 {"test_days": 30, "cv_folds": 3}, "2026-10-04", [str(plot)], model, X)
 
     run = _only_run(local_mlflow, "training")
-    assert run.info.run_name == "random_forest s/d 2026-10-04"
+    assert run.info.run_name == "random_forest max_depth=3 s/d 2026-10-04"
     assert run.data.metrics["test_mae"] == 3.0
     assert run.data.metrics["baseline_mae"] == 3.5
     assert run.data.params["model_max_depth"] == "3"

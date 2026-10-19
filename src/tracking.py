@@ -11,7 +11,9 @@ from contextlib import contextmanager
 
 class _NoOpTracker:
     def __getattr__(self, name):
-        return lambda *args, **kwargs: None
+        return self
+    def __call__(self, *args, **kwargs):
+        return None
 
 
 def run_tags() -> dict:

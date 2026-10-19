@@ -100,7 +100,7 @@ model:
   params:
     random_forest:
       n_estimators: 300
-      max_depth: 4
+      max_depth: 3
       min_samples_leaf: 30
       max_features: 0.5
       n_jobs: -1
