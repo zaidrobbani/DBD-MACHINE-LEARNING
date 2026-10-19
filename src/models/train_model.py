@@ -19,6 +19,9 @@ from src.tracking import mlflow_run
 from src.utils import config_arg_parser, load_config
 from src.visualization.visualize import plot_forecast
 
+import argparse
+import yaml
+
 ESTIMATORS = {
     "random_forest": RandomForestRegressor,
     "gradient_boosting": HistGradientBoostingRegressor,
@@ -83,8 +86,8 @@ def cross_validate_temporal(model_cfg, seed, train, features, n_splits, gap) -> 
     }
 
 
-def log_training(experiment: str, metrics: dict, split_cfg: dict, trained_until: str, artifacts: list[str]) -> None:
-    with mlflow_run(experiment, f"{metrics['model_type']} s/d {trained_until}") as tracker:
+def log_training(experiment: str, metrics: dict, run_name:str, split_cfg: dict, trained_until: str, artifacts: list[str], model, input_example: pd.DataFrame) -> None:
+    with mlflow_run(experiment, run_name) as tracker:
         tracker.log_params({
             "model_type": metrics["model_type"],
             "residual_on": metrics["residual_on"],
@@ -106,14 +109,42 @@ def log_training(experiment: str, metrics: dict, split_cfg: dict, trained_until:
         for path in artifacts:
             tracker.log_artifact(path)
 
+        tracker.sklearn.log_model(
+            model, 
+            name="model", 
+            input_example=input_example,
+            code_paths=["src"],
+            serialization_format="cloudpickle",
+        )
 
+def parse_params(text: str) -> tuple[str, object]:
+    key, sep, value = text.partition("=")
+    if not sep: 
+        raise argparse.ArgumentTypeError(f"parameter tidak valid: {text}")
+
+    return key, yaml.safe_load(value)
+    
+def train_arg_parser() -> argparse.ArgumentParser:
+    parser = config_arg_parser("Latih model forecasting minat DBD.")
+    parser.add_argument("--model-type", choices=list(ESTIMATORS),
+                        help="Timpa model.type di config")
+    parser.add_argument("--param", type=parse_params, action="append", default=[], metavar="KEY=VALUE",
+                        help="Timpa hyperparameter model, boleh diulang")
+    return parser
+
+def apply_overrides(model_cfg: dict, model_type: str | None, params: list[tuple[str, object]]) -> None:
+    if model_type:
+        model_cfg["type"] = model_type
+    model_cfg["params"][model_cfg["type"]].update(params)
+     
 def period(df: pd.DataFrame) -> list[str]:
     return [str(df[DATE].min().date()), str(df[DATE].max().date())]
 
 
-def main(config_path: str) -> None:
+def main(config_path: str, model_type: str | None = None, params: list[tuple[str, object]] = ()) -> None:
     config = load_config(config_path)
     paths, split_cfg, model_cfg = config["paths"], config["split"], config["model"]
+    apply_overrides(model_cfg, model_type, params)
     horizon = config["features"]["horizon_days"]
     seed = config["project"]["seed"]
 
@@ -176,8 +207,12 @@ def main(config_path: str) -> None:
     plot_forecast(test[DATE], test[TARGET], test_pred, test[model_cfg["baseline_feature"]],
                   paths["forecast_plot_path"], horizon)
 
-    log_training(config["tracking"]["training_experiment"], metrics, split_cfg, period(final_data)[1],
-                 [paths["metrics_path"], paths["forecast_plot_path"]])
+    tuned = " ".join(f"{k}={v}" for k, v in params)
+    run_name = " ".join(filter(None, [model_cfg["type"], tuned, f"s/d {period(final_data)[1]}"]))
+
+    log_training(config["tracking"]["training_experiment"], metrics, run_name, split_cfg, period(final_data)[1],
+                 [paths["metrics_path"], paths["forecast_plot_path"]],
+                 model, final_data[features].head(5))
 
     print(f"[train_model] Model: {model_path} | metrik: {paths['metrics_path']} | plot: {paths['forecast_plot_path']}")
     if not metrics["beats_baseline"]:
@@ -185,5 +220,5 @@ def main(config_path: str) -> None:
 
 
 if __name__ == "__main__":
-    args = config_arg_parser("Latih model forecasting minat DBD.").parse_args()
-    main(args.config)
+    args = train_arg_parser().parse_args()
+    main(args.config, args.model_type, args.param)

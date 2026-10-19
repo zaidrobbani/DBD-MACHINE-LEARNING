@@ -144,8 +144,8 @@ stages:
       size: 746
     - path: src/models/train_model.py
       hash: md5
-      md5: 0e17698e0699abca2fc24520ec9b3af7
-      size: 8440
+      md5: 7243ccdf1e01ab5fd8aa6874635747a3
+      size: 9919
     - path: src/visualization/visualize.py
       hash: md5
       md5: 9d5fa3359db520699405156da67a43ec
@@ -161,7 +161,7 @@ stages:
           params:
             random_forest:
               n_estimators: 300
-              max_depth: 4
+              max_depth: 3
               min_samples_leaf: 30
               max_features: 0.5
               n_jobs: -1
@@ -179,13 +179,13 @@ stages:
     outs:
     - path: models/forecast_test.png
       hash: md5
-      md5: 7a08e2a13d505aca9cab87bfa3fbb8e1
-      size: 93283
+      md5: d5aacb7fa22d1cedf84266f9aee821bd
+      size: 93505
     - path: models/metrics.json
       hash: md5
-      md5: f7d38b2ae50b08dd6d5721aa52cf07f4
-      size: 1712
+      md5: 3e93eca78bf695cd808ff69f9126aca4
+      size: 1710
     - path: models/model.pkl
       hash: md5
-      md5: a5ce374758cf4d416a2b24bb870e64ec
-      size: 427511
+      md5: 52034177959787ed3c56591713624364
+      size: 330023
