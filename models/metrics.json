@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-30T10:08:34.541854+00:00",
+  "timestamp": "2026-11-02T11:18:17.629898+00:00",
   "model_type": "random_forest",
   "residual_on": "pv_mean_7",
   "params": {
@@ -11,67 +11,67 @@
   },
   "horizon_days": 7,
   "target": "rata-rata page_views t+1..t+7",
-  "n_train": 616,
+  "n_train": 619,
   "n_test": 90,
   "train_period": [
     "2024-11-08",
-    "2026-07-16"
+    "2026-07-19"
   ],
   "test_period": [
-    "2026-07-24",
-    "2026-10-21"
+    "2026-07-27",
+    "2026-10-24"
   ],
   "cv": {
     "folds": [
       {
         "fold": 1,
-        "n_train": 99,
-        "n_val": 102,
-        "model_mae": 3.4448259036349276,
-        "baseline_mae": 3.6204481792717087
+        "n_train": 97,
+        "n_val": 103,
+        "model_mae": 3.462163614792008,
+        "baseline_mae": 3.6338418862690713
       },
       {
         "fold": 2,
-        "n_train": 201,
-        "n_val": 102,
-        "model_mae": 3.7074387293339877,
-        "baseline_mae": 3.0588235294117654
+        "n_train": 200,
+        "n_val": 103,
+        "model_mae": 3.7049170509448057,
+        "baseline_mae": 3.063800277392511
       },
       {
         "fold": 3,
         "n_train": 303,
-        "n_val": 102,
-        "model_mae": 3.220417001405782,
-        "baseline_mae": 3.3431372549019627
+        "n_val": 103,
+        "model_mae": 3.2997132522669395,
+        "baseline_mae": 3.396671289875175
       },
       {
         "fold": 4,
-        "n_train": 405,
-        "n_val": 102,
-        "model_mae": 2.9083574351545627,
-        "baseline_mae": 2.5476190476190483
+        "n_train": 406,
+        "n_val": 103,
+        "model_mae": 2.8822291444470824,
+        "baseline_mae": 2.540915395284328
       },
       {
         "fold": 5,
-        "n_train": 507,
-        "n_val": 102,
-        "model_mae": 2.398910488499229,
-        "baseline_mae": 2.364145658263305
+        "n_train": 509,
+        "n_val": 103,
+        "model_mae": 2.315060052741754,
+        "baseline_mae": 2.2649098474341187
       }
     ],
-    "model_mae_mean": 3.135989911605698,
-    "baseline_mae_mean": 2.986834733893558
+    "model_mae_mean": 3.1328166230385177,
+    "baseline_mae_mean": 2.9800277392510406
   },
   "test": {
-    "mae": 3.9916445906035416,
-    "rmse": 4.831022896180188,
-    "r2": -0.5626286559899247
+    "mae": 3.876472166271424,
+    "rmse": 4.76523839496033,
+    "r2": -0.5806807807152976
   },
   "baseline_test": {
-    "mae": 4.352380952380952,
-    "rmse": 5.478550216221015,
-    "r2": -1.009596594835032
+    "mae": 4.204761904761904,
+    "rmse": 5.390699137237081,
+    "r2": -1.0228565956542264
   },
-  "skill_vs_baseline_mae": 0.08288253388758882,
+  "skill_vs_baseline_mae": 0.07807570224575411,
   "beats_baseline": true
 }
