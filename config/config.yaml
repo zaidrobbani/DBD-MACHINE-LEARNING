@@ -108,7 +108,7 @@ model:
   # random_state diambil dari project.seed.
   params:
     random_forest:
-      n_estimators: 300
+      n_estimators: 350
       max_depth: 3
       min_samples_leaf: 30
       max_features: 0.5
