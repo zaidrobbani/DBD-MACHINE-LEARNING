@@ -1,0 +1,120 @@
+name: MLOps Automation (Test -> Train -> Evaluate -> Staging)
+
+# Code as a Trigger: setiap perubahan kode, konfigurasi, atau dependensi memicu
+# rangkaian penuh. Commit bot yang hanya mengubah pointer data tidak memicu
+# workflow ini, karena retrain berbasis data sudah ditangani ml-pipeline.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "config/**"
+      - "train.py"
+      - "dvc.yaml"
+      - "requirements.txt"
+      - ".github/actions/**"
+      - ".github/workflows/mlops-automation.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "config/**"
+      - "train.py"
+      - "dvc.yaml"
+      - "requirements.txt"
+      - ".github/actions/**"
+      - ".github/workflows/mlops-automation.yaml"
+
+concurrency:
+  group: mlops-automation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MLFLOW_TRACKING_URI: https://dagshub.com/zaidrobbani/DBD-MACHINE-LEARNING.mlflow
+  MLFLOW_TRACKING_USERNAME: zaidrobbani
+  MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+  MLFLOW_DISABLE_AGENT_HINT: "1"
+
+jobs:
+  test:
+    name: "Tahap 1: Automated Testing"
+    runs-on: ubuntu-latest
+    env:
+      # Unit test tidak boleh mengirim apa pun ke DagsHub.
+      MLFLOW_TRACKING_URI: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+
+      - name: Lint (ruff)
+        run: ruff check src tests
+
+      - name: Unit test (pytest)
+        run: python -m pytest -q
+
+  train:
+    name: "Tahap 2: Automated Training"
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      RETRAIN_REASON: "perubahan kode (${{ github.event_name }})"
+      # Di pull_request, github.sha adalah merge commit sementara. Catat commit aslinya.
+      TRAIN_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+      - uses: ./.github/actions/setup-dvc
+        with:
+          token: ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Pull dataset terbaru (DVC)
+        run: |
+          dvc pull data/raw/dataset.csv.dvc
+          cat data/raw/dataset.csv.dvc
+
+      - name: Validasi data dan bangun fitur (DVC)
+        run: dvc repro validate features
+
+      - name: Latih model (train.py)
+        run: python train.py
+
+      - name: Upload hasil training
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-output
+          path: |
+            models/metrics.json
+            models/forecast_test.png
+          retention-days: 30
+
+  evaluate:
+    name: "Tahap 3: Model Evaluation & Validation"
+    needs: train
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: training-output
+          path: models
+
+      - name: Bandingkan metrik dengan ambang batas
+        run: python -m src.models.evaluate_model
+
+  register:
+    name: "Tahap 4: Auto-Registry (Staging)"
+    needs: evaluate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+
+      - name: Daftarkan model ke MLflow Model Registry
+        run: python -m src.models.registry staging --ci-run-id "${{ github.run_id }}"

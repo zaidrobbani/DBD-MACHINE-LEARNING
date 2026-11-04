@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import Ridge
 
+from src.models.registry import run_from_ci
 from src.models.train_model import log_training
 from src.monitoring.check_drift import log_drift
 from src.tracking import mlflow_run
@@ -48,6 +49,8 @@ def local_mlflow(monkeypatch, tmp_path):
     uri = (tmp_path / "mlruns").as_uri()
     monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
     monkeypatch.setenv("RETRAIN_REASON", "jadwal mingguan")
+    monkeypatch.setenv("TRAIN_COMMIT", "abc123")
+    monkeypatch.setenv("GITHUB_RUN_ID", "777")
     mlflow.set_tracking_uri(uri)
     yield mlflow.MlflowClient(uri)
     mlflow.set_tracking_uri(None)
@@ -75,6 +78,11 @@ def test_log_training(local_mlflow, tmp_path):
     assert run.data.metrics["baseline_mae"] == 3.5
     assert run.data.params["model_max_depth"] == "3"
     assert run.data.tags["trigger"] == "jadwal mingguan"
+    assert run.data.tags["git_commit"] == "abc123"
+    assert run.data.tags["ci_run_id"] == "777"
+    assert run_from_ci(local_mlflow, "training", "777").info.run_id == run.info.run_id
+    with pytest.raises(SystemExit):
+        run_from_ci(local_mlflow, "training", "000")
     assert [a.path for a in local_mlflow.list_artifacts(run.info.run_id)] == ["forecast_test.png"]
 
 
