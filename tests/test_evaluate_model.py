@@ -35,7 +35,9 @@ def test_evaluate_flags_the_failing_metric(values, failed):
     assert [r["metric"] for r in results if not r["passed"]] == [failed]
 
 
-def test_main_exits_nonzero_when_model_fails(tmp_path, capsys):
+def test_main_exits_nonzero_when_model_fails(tmp_path, capsys, monkeypatch):
+    # Di GitHub Actions env ini menunjuk ringkasan job yang asli. Angka test tidak boleh masuk ke sana.
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     with pytest.raises(SystemExit) as exc:
         main(write_inputs(tmp_path, metrics(skill=-0.1)))
     assert exc.value.code == 1
