@@ -58,6 +58,15 @@ monitoring:
   max_model_age_days: 10     # pengaman kalau retrain mingguan gagal
   drift_cooldown_days: 3     # drift tidak memicu retrain selama ini setelah training
 
+# Gate evaluasi sebelum model masuk Staging (src/models/evaluate_model.py).
+# LK-01 menetapkan MAE/RMSE sebagai metrik teknis dan retrain saat performa memburuk
+# dibanding baseline. Angka di bawah = 1.5 x metrik test Version 2 (MAE 3.992,
+# RMSE 4.831), rasio yang sama dengan monitoring.mae_ratio_threshold.
+evaluation:
+  min_skill_vs_baseline: 0.0   # MAE test harus lebih kecil dari baseline naif
+  max_test_mae: 5.99
+  max_test_rmse: 7.25
+
 # Aturan validasi dipakai di dua titik: data mentah (validate_dataset)
 # dan data bersih (preprocess). Kolom wajib didefinisikan di src/schema.py.
 validation:
@@ -99,7 +108,7 @@ model:
   # random_state diambil dari project.seed.
   params:
     random_forest:
-      n_estimators: 300
+      n_estimators: 350
       max_depth: 3
       min_samples_leaf: 30
       max_features: 0.5
