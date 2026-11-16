@@ -5,8 +5,8 @@ stages:
     deps:
     - path: data/raw/dataset.csv
       hash: md5
-      md5: ee60dd7b1e300768935b359c6b3f1606
-      size: 36387
+      md5: e456e89b52b537e3527b5949989c7f34
+      size: 36719
     - path: src/data/validate_dataset.py
       hash: md5
       md5: 890ec5fda043b12641ad114ddc80fdb3
@@ -40,8 +40,8 @@ stages:
     deps:
     - path: data/raw/dataset.csv
       hash: md5
-      md5: ee60dd7b1e300768935b359c6b3f1606
-      size: 36387
+      md5: e456e89b52b537e3527b5949989c7f34
+      size: 36719
     - path: src/data/preprocess.py
       hash: md5
       md5: a194e19d8f148d574b40be37f1bb194b
@@ -83,15 +83,15 @@ stages:
     outs:
     - path: data/interim/dataset_clean.csv
       hash: md5
-      md5: ee60dd7b1e300768935b359c6b3f1606
-      size: 36387
+      md5: e456e89b52b537e3527b5949989c7f34
+      size: 36719
   features:
     cmd: python -m src.features.build_features
     deps:
     - path: data/interim/dataset_clean.csv
       hash: md5
-      md5: ee60dd7b1e300768935b359c6b3f1606
-      size: 36387
+      md5: e456e89b52b537e3527b5949989c7f34
+      size: 36719
     - path: src/features/build_features.py
       hash: md5
       md5: 2b16e9404e02c380b62c43b13b3c1eb6
@@ -125,15 +125,15 @@ stages:
     outs:
     - path: data/processed/features.csv
       hash: md5
-      md5: 7046101289d66a5aff45cf6e64d4d6c7
-      size: 242126
+      md5: 3aeef02874a4e8502d8d7d4852b3555a
+      size: 244729
   train:
     cmd: python -m src.models.train_model
     deps:
     - path: data/processed/features.csv
       hash: md5
-      md5: 7046101289d66a5aff45cf6e64d4d6c7
-      size: 242126
+      md5: 3aeef02874a4e8502d8d7d4852b3555a
+      size: 244729
     - path: src/features/build_features.py
       hash: md5
       md5: 2b16e9404e02c380b62c43b13b3c1eb6
@@ -179,13 +179,13 @@ stages:
     outs:
     - path: models/forecast_test.png
       hash: md5
-      md5: 9b8ef5a8d08e90281a64e6f7a70b0398
-      size: 93810
+      md5: 2679855b57f8c20d2c96387fa583e66d
+      size: 92398
     - path: models/metrics.json
       hash: md5
-      md5: ff39903ecccbf51b85a9d2b7cf6ca756
-      size: 1717
+      md5: 0992ee38438760e62a8f27d82a0fa427
+      size: 1712
     - path: models/model.pkl
       hash: md5
-      md5: 10ff451a08293bce16900442cf0f04a9
-      size: 385943
+      md5: 8c8c0c5c32af0262c6df2ef5ed21ec98
+      size: 385367

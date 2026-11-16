@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-09T11:41:17.107964+00:00",
+  "timestamp": "2026-11-16T11:30:36.555403+00:00",
   "model_type": "random_forest",
   "residual_on": "pv_mean_7",
   "params": {
@@ -11,67 +11,67 @@
   },
   "horizon_days": 7,
   "target": "rata-rata page_views t+1..t+7",
-  "n_train": 625,
+  "n_train": 633,
   "n_test": 90,
   "train_period": [
     "2024-11-08",
-    "2026-07-25"
+    "2026-08-02"
   ],
   "test_period": [
-    "2026-08-02",
-    "2026-10-30"
+    "2026-08-10",
+    "2026-11-07"
   ],
   "cv": {
     "folds": [
       {
         "fold": 1,
-        "n_train": 98,
-        "n_val": 104,
-        "model_mae": 3.4265742892285256,
-        "baseline_mae": 3.583791208791209
+        "n_train": 101,
+        "n_val": 105,
+        "model_mae": 3.3972604741017234,
+        "baseline_mae": 3.5823129251700676
       },
       {
         "fold": 2,
-        "n_train": 202,
-        "n_val": 104,
-        "model_mae": 3.6438353567100554,
-        "baseline_mae": 3.1153846153846154
+        "n_train": 206,
+        "n_val": 105,
+        "model_mae": 3.549330902274095,
+        "baseline_mae": 3.076190476190477
       },
       {
         "fold": 3,
-        "n_train": 306,
-        "n_val": 104,
-        "model_mae": 3.4079367596704193,
-        "baseline_mae": 3.4217032967032965
+        "n_train": 311,
+        "n_val": 105,
+        "model_mae": 3.405301491499563,
+        "baseline_mae": 3.578231292517007
       },
       {
         "fold": 4,
-        "n_train": 410,
-        "n_val": 104,
-        "model_mae": 2.797261271973449,
-        "baseline_mae": 2.6538461538461537
+        "n_train": 416,
+        "n_val": 105,
+        "model_mae": 2.453535489565991,
+        "baseline_mae": 2.52108843537415
       },
       {
         "fold": 5,
-        "n_train": 514,
-        "n_val": 104,
-        "model_mae": 2.1220784924103175,
-        "baseline_mae": 2.0467032967032965
+        "n_train": 521,
+        "n_val": 105,
+        "model_mae": 2.358474578176429,
+        "baseline_mae": 2.289795918367347
       }
     ],
-    "model_mae_mean": 3.079537233998553,
-    "baseline_mae_mean": 2.964285714285714
+    "model_mae_mean": 3.0327805871235602,
+    "baseline_mae_mean": 3.0095238095238095
   },
   "test": {
-    "mae": 3.6581553513459095,
-    "rmse": 4.600621213564599,
-    "r2": -0.5957860378138855
+    "mae": 3.472622127309792,
+    "rmse": 4.347991374710784,
+    "r2": -0.4315518491052026
   },
   "baseline_test": {
-    "mae": 3.8714285714285714,
-    "rmse": 5.184859346203067,
-    "r2": -1.0268222560138742
+    "mae": 3.523809523809524,
+    "rmse": 4.896016243507505,
+    "r2": -0.8151621812975762
   },
-  "skill_vs_baseline_mae": 0.05508902363758794,
+  "skill_vs_baseline_mae": 0.014526153060734792,
   "beats_baseline": true
 }
